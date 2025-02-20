@@ -41,7 +41,17 @@ jobs:
         for branch in $BRANCHES
         do
           echo "Processing branch: $branch"
+          
+          # Stash le modifiche prima di cambiare branch
+          git stash
+          
           git checkout $branch
+          
+          # Recupera le modifiche stashed
+          git stash pop || echo "No changes to pop"
+          
+          # Effettua il pull con rebase per evitare conflitti
+          git pull --rebase origin $branch
           
           # Applica le modifiche
           python update_domains.py
