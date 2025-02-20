@@ -34,28 +34,27 @@ jobs:
         git config --global user.email "your-email@example.com"
         git config --global user.name "Your Name"
         
-        # Ottieni lista di tutti i branch remoti
+        # Ottieni lista di tutti i branch remoti senza il prefisso "origin/"
         git fetch --all
         BRANCHES=$(git branch -r | grep -v '\->' | sed 's/origin\///')
-        
+    
         for branch in $BRANCHES
         do
           echo "Processing branch: $branch"
-          
-          # Stash le modifiche prima di cambiare branch
-          git stash
-          
-          git checkout $branch
-          
-          # Recupera le modifiche stashed
-          git stash pop || echo "No changes to pop"
-          
+    
+          # Controlla se il branch esiste localmente, altrimenti crealo
+          if git rev-parse --verify "$branch"; then
+            git checkout $branch
+          else
+            git checkout -b $branch origin/$branch
+          fi
+    
           # Effettua il pull con rebase per evitare conflitti
-          git pull --rebase origin $branch
-          
-          # Applica le modifiche
+          git pull --rebase origin $branch || (echo "Rebase fallito, tentando un merge" && git pull origin $branch --no-rebase)
+    
+          # Esegui lo script per aggiornare config.json
           python update_domains.py
-          
+    
           # Verifica se ci sono modifiche
           if git diff --exit-code config.json; then
             echo "No changes in config.json for branch $branch"
