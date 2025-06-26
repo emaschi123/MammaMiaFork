@@ -48,7 +48,7 @@ def check_redirect(domain, site_key):
         domain = 'http://' + domain
 
     try:
-        response = requests.get(domain, allow_redirects=True)
+        response = requests.get(domain, allow_redirects=True, verify=False)  # Disable SSL verification
         final_url = response.url
         final_domain = extract_full_domain(final_url, site_key)
         return domain, final_domain
@@ -89,9 +89,9 @@ def update_json_file():
         'DDLStream': general_domains[6],
         'Guardaserie': general_domains[7],
         'GuardaHD': general_domains[8],
-        'AnimeWorld': general_domains[9],
-        'SkyStreaming': general_domains[10],
-        'DaddyLiveHD': general_domains[11],
+        'AnimeWorld': general_domains[10],
+        'SkyStreaming': general_domains[11],
+        'DaddyLiveHD': general_domains[12],
     }
 
     for site_key, domain_url in site_mapping.items():
