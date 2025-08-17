@@ -2,30 +2,18 @@ import json
 import requests
 from urllib.parse import urlparse
 
-def get_domains(pastebin_url):
-    """
-    Recupera il contenuto del Pastebin con i domini.
-    :param pastebin_url: URL del Pastebin da cui recuperare i domini.
-    :return: Lista dei domini dal file Pastebin.
-    """
+def get_domains(pastes_url):
     try:
-        response = requests.get(pastebin_url)
+        response = requests.get(pastes_url)
         response.raise_for_status()
         domains = response.text.strip().split('\n')
-        domains = [domain.strip().replace('\r', '') for domain in domains]
+        domains = [domain.strip().replace('\r', '') for domain in domains if domain.strip()]
         return domains
     except requests.RequestException as e:
         print(f"Errore durante il recupero dei domini: {e}")
         return []
 
 def extract_full_domain(domain, site_key):
-    """
-    Estrae il dominio completo da un URL con https:// e www. per Tantifilm e StreamingWatch,
-    mentre per gli altri solo con https://.
-    :param domain: Dominio da analizzare.
-    :param site_key: Nome del sito per decidere il prefisso.
-    :return: Dominio completo con schema e www. se richiesto.
-    """
     parsed_url = urlparse(domain)
     scheme = parsed_url.scheme if parsed_url.scheme else 'https'
     netloc = parsed_url.netloc or parsed_url.path
@@ -37,18 +25,19 @@ def extract_full_domain(domain, site_key):
     else:
         return f"https://{netloc}"
 
+def extract_tld(domain_url):
+    parsed = urlparse(domain_url)
+    netloc = parsed.netloc or parsed.path
+    if '.' in netloc:
+        return netloc.split('.')[-1]
+    return ''
+
 def check_redirect(domain, site_key):
-    """
-    Verifica se un dominio fa un redirect e restituisce il dominio finale completo con https:// e www.
-    :param domain: Dominio da verificare.
-    :param site_key: Nome del sito per decidere il prefisso.
-    :return: Tuple con l'URL originale e il dominio finale completo.
-    """
     if not domain.startswith(('http://', 'https://')):
         domain = 'http://' + domain
 
     try:
-        response = requests.get(domain, allow_redirects=True, verify=False)  # Disable SSL verification
+        response = requests.get(domain, allow_redirects=True, timeout=5)
         final_url = response.url
         final_domain = extract_full_domain(final_url, site_key)
         return domain, final_domain
@@ -56,9 +45,6 @@ def check_redirect(domain, site_key):
         return domain, f"Error: {str(e)}"
 
 def update_json_file():
-    """
-    Aggiorna il file JSON con i domini finali (post-redirect) recuperati da Pastebin.
-    """
     try:
         with open('config.json', 'r', encoding='utf-8') as file:
             data = json.load(file)
@@ -69,30 +55,35 @@ def update_json_file():
         print("Errore: Il file config.json non è un JSON valido.")
         return
 
-    streamingcommunity_url = 'https://pastebin.com/raw/KgQ4jTy6'
-    streamingcommunity_domains = get_domains(streamingcommunity_url)
+    general_pastes_url = 'https://pastes.io/raw/dom-54686'
+    general_domains = get_domains(general_pastes_url)
 
-    general_pastebin_url = 'https://pastebin.com/raw/E8WAhekV'
-    general_domains = get_domains(general_pastebin_url)
-
-    if not general_domains or not streamingcommunity_domains:
-        print("Lista dei domini vuota. Controlla i link di Pastebin.")
+    if not general_domains:
+        print("Lista dei domini vuota. Controlla i link di Pastes.")
         return
 
-    site_mapping = {
-        'StreamingCommunity': streamingcommunity_domains[0],
-        'Filmpertutti': general_domains[1],
-        'Tantifilm': general_domains[2],
-        'LordChannel': general_domains[3],
-        'StreamingWatch': general_domains[4],
-        'CB01': general_domains[5],
-        'DDLStream': general_domains[6],
-        'Guardaserie': general_domains[7],
-        'GuardaHD': general_domains[8],
-        'AnimeWorld': general_domains[10],
-        'SkyStreaming': general_domains[11],
-        'DaddyLiveHD': general_domains[12],
-    }
+    expected_sites = [
+        'StreamingCommunity',
+        'Filmpertutti',
+        'Tantifilm',
+        'LordChannel',
+        'StreamingWatch',
+        'CB01',
+        'DDLStream',
+        'Guardaserie',
+        'GuardaHD',
+        'Onlineserietv',
+        'AnimeWorld',
+        'SkyStreaming',
+        'DaddyLiveHD'
+    ]
+
+    site_mapping = {}
+    for idx, site_name in enumerate(expected_sites):
+        try:
+            site_mapping[site_name] = general_domains[idx]
+        except IndexError:
+            print(f"❌ Manca il dominio per '{site_name}' nel Pastes. Sistema il link oppure rimuovi il sito.")
 
     for site_key, domain_url in site_mapping.items():
         if site_key in data['Siti']:
@@ -100,13 +91,36 @@ def update_json_file():
             if "Error" in final_domain:
                 print(f"Errore nel redirect di {original}: {final_domain}")
                 continue
-            data['Siti'][site_key]['url'] = final_domain
-            print(f"Aggiornato {site_key}: {final_domain}")
+
+            if site_key == 'Onlineserietv':
+                tld = extract_tld(final_domain)
+                data['Siti'][site_key]['domain'] = tld
+                print(f"🌐 Onlineserietv aggiornato con domain: {tld}")
+            else:
+                data['Siti'][site_key]['url'] = final_domain
+                print(f"✅ Aggiornato {site_key}: {final_domain}")
+
+            if 'cookies' in data['Siti'][site_key]:
+                cookies = data['Siti'][site_key]['cookies']
+                updated = False
+                for key in ['ips4_device_key', 'ips4_IPSSessionFront', 'ips4_member_id', 'ips4_login_key']:
+                    if cookies.get(key) is None:
+                        updated = True
+                        if key == 'ips4_device_key':
+                            cookies[key] = "1496c03312d318b557ff53512202e757"
+                        elif key == 'ips4_IPSSessionFront':
+                            cookies[key] = "d9ace0029696972877e2a5e3614a333b"
+                        elif key == 'ips4_member_id':
+                            cookies[key] = "d9ace0029696972877e2a5e3614a333b"
+                        elif key == 'ips4_login_key':
+                            cookies[key] = "71a501781ba479dfb91b40147e637daf"
+                if updated:
+                    print(f"🍪 Cookies aggiornati per {site_key} – ed è subito diabete.")
 
     try:
         with open('config.json', 'w', encoding='utf-8') as file:
             json.dump(data, file, indent=4, ensure_ascii=False)
-        print("File config.json aggiornato con successo!")
+        print("⚡ File config.json aggiornato con successo! Pace e bestemmie!")
     except Exception as e:
         print(f"Errore durante il salvataggio del file JSON: {e}")
 
